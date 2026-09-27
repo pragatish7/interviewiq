@@ -1,0 +1,91 @@
+{
+  "model_version": "2.0.0-video-labeled",
+  "model_type": "Ridge",
+  "feature_names": [
+    "word_count",
+    "speech_duration_s",
+    "words_per_minute",
+    "filler_count",
+    "filler_rate_per_min",
+    "unique_word_ratio",
+    "avg_sentence_length",
+    "question_term_coverage",
+    "ref_bigram_coverage",
+    "semantic_similarity",
+    "question_similarity",
+    "structure_score",
+    "hedge_count",
+    "sim_very_good",
+    "sim_good",
+    "sim_average",
+    "sim_poor",
+    "sim_very_poor",
+    "grade_margin"
+  ],
+  "label_source": "mock_interview_dataset_test.csv final_score (750 graded answers)",
+  "trained_rows": 750,
+  "split": "GroupShuffleSplit by question_id (70/15/15), grouped to avoid leakage",
+  "metrics": {
+    "ridge": {
+      "validation": {
+        "mae": 2.287,
+        "rmse": 2.954,
+        "r2": 0.9893
+      },
+      "test": {
+        "mae": 2.282,
+        "rmse": 2.937,
+        "r2": 0.9896
+      }
+    },
+    "random_forest": {
+      "validation": {
+        "mae": 2.324,
+        "rmse": 3.58,
+        "r2": 0.9843
+      }
+    },
+    "gradient_boosting": {
+      "validation": {
+        "mae": 2.363,
+        "rmse": 3.431,
+        "r2": 0.9856
+      }
+    }
+  },
+  "test_metrics": {
+    "mae": 2.282,
+    "rmse": 2.937,
+    "r2": 0.9896
+  },
+  "by_grade_mean_prediction": {
+    "Average": 59.9,
+    "Good": 80.1,
+    "Poor": 39.8,
+    "Very Good": 94.8,
+    "Very Poor": 14.7
+  },
+  "feature_importance": {
+    "sim_good": 7.1724,
+    "sim_very_poor": -6.9413,
+    "sim_poor": -6.7395,
+    "grade_margin": 5.6997,
+    "word_count": 4.6771,
+    "speech_duration_s": 4.6293,
+    "sim_very_good": 2.2575,
+    "sim_average": 2.2177,
+    "filler_count": 2.1233,
+    "filler_rate_per_min": -1.6472,
+    "structure_score": 1.5918,
+    "question_similarity": -1.3046,
+    "question_term_coverage": 0.7517,
+    "hedge_count": -0.4363,
+    "avg_sentence_length": 0.4246,
+    "unique_word_ratio": -0.1961,
+    "words_per_minute": 0.0,
+    "ref_bigram_coverage": 0.0,
+    "semantic_similarity": 0.0
+  },
+  "model_path": "C:\\Users\\HP\\Desktop\\Projects\\ML Project\\models\\interview_model.pkl",
+  "scaler_path": "C:\\Users\\HP\\Desktop\\Projects\\ML Project\\models\\interview_scaler.pkl"
+}

@@ -1,0 +1,38 @@
+# --- Python / venv ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Node / frontend build ---
+frontend/node_modules/
+frontend/dist/
+
+# --- Machine-local app data (not source) ---
+uploads/
+reports/
+data/interviewiq.db
+data/processed/
+data/raw/
+data/sample/
+data/mock_interview_dataset_test.csv
+
+# --- Trained model binaries (regenerate with: python -m training.train) ---
+models/*.pkl
+
+# --- Videos & media ---
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.wav
+
+# --- Freebuff workspace internals & logs ---
+.freebuff/
+*.log
+*.log.err
+
+# --- OS junk ---
+Thumbs.db
+.DS_Store
