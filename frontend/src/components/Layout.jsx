@@ -1,11 +1,13 @@
 import { NavLink, Outlet, useLocation, Link } from 'react-router-dom'
-import { Home, Upload, History, TrendingUp, Settings, Sun, Moon, Menu, X, Sparkles } from 'lucide-react'
+import { Home, Upload, History, TrendingUp, Settings, Sun, Moon, Menu, X, Sparkles, MessagesSquare, Mic } from 'lucide-react'
 import { useTheme } from '../App'
 import { useState, useEffect } from 'react'
 
 const NAV = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/analyze', label: 'Analyze', icon: Upload },
+  { to: '/live-interview', label: 'Live Interview', icon: Mic },
+  { to: '/coach', label: 'AI Coach', icon: MessagesSquare },
   { to: '/history', label: 'History', icon: History },
   { to: '/progress', label: 'Progress', icon: TrendingUp },
 ]

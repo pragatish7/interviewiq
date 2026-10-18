@@ -23,6 +23,7 @@ def init_db():
     from app.models.models import Base as ModelBase
     ModelBase.metadata.create_all(bind=engine)
     _migrate()
+    _migrate_coach_sessions()
 
 
 def _migrate():
@@ -43,6 +44,36 @@ def _migrate():
         for name, ddl in additions.items():
             if name not in cols:
                 conn.execute(f"ALTER TABLE interviews ADD COLUMN {name} {ddl}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_coach_sessions():
+    """Ensure the AI Coach table exists on databases created before the
+    feature shipped (create_all already handles brand-new databases)."""
+    import sqlite3
+    db_path = os.path.join(DATABASE_DIR, 'interviewiq.db')
+    if not os.path.exists(db_path):
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS coach_sessions ("
+            "id INTEGER PRIMARY KEY,"
+            "created_at DATETIME,"
+            "updated_at DATETIME,"
+            "title VARCHAR(120) DEFAULT 'New chat',"
+            "messages JSON,"
+            "active_practice JSON,"
+            "target_role VARCHAR(255),"
+            "mode VARCHAR(40) DEFAULT 'coaching',"
+            "tone VARCHAR(40) DEFAULT 'friendly',"
+            "snapshot JSON,"
+            "snapshot_source_kind VARCHAR(30),"
+            "snapshot_source_id INTEGER"
+            ")"
+        )
         conn.commit()
     finally:
         conn.close()

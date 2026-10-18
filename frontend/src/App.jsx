@@ -8,6 +8,7 @@ import InterviewReport from './pages/InterviewReport'
 import ProgressPage from './pages/ProgressPage'
 import SettingsPage from './pages/SettingsPage'
 import LiveInterviewPage from './pages/LiveInterviewPage'
+import CoachPage from './pages/CoachPage'
 
 export const ThemeContext = createContext()
 export function useTheme() { return useContext(ThemeContext) }
@@ -47,6 +48,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/analyze" element={<AnalyzeInterview />} />
             <Route path="/live-interview" element={<LiveInterviewPage />} />
+            <Route path="/coach" element={<CoachPage />} />
             <Route path="/history" element={<InterviewHistory />} />
             <Route path="/progress" element={<ProgressPage />} />
             <Route path="/interview/:id" element={<InterviewReport />} />

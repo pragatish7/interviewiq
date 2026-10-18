@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/live-interviews", tags=["live-interviews"])
 
+# Raw recorded answers (pre-evaluation) live in session.results entries with
+# this marker until /finish evaluates them all at once. The frontend never
+# sees these — evaluation output replaces them when the session completes.
+_RECORD_MARKER = "_recorded"
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -51,6 +56,18 @@ class AnswerRequest(BaseModel):
 
 
 class AnswerResponse(BaseModel):
+    """Record acknowledgement. Per-answer scores are NOT computed here — all
+    evaluation happens once, in /finish, after the last question."""
+    recorded: bool = True
+    question_id: str
+    answered_count: int = 0
+    total_questions: int = 0
+
+
+# Kept for backwards compatibility with the older per-answer evaluation flow
+# (any external client that consumed the per-answer scores via /report). The
+# live page no longer calls it.
+class ScoredAnswerResponse(BaseModel):
     score: float
     score_10: float
     grade_label: str
@@ -124,7 +141,12 @@ async def start_session(req: LiveStartRequest, db: Session = Depends(get_db)):
 
 @router.post("/{session_id}/answer", response_model=AnswerResponse)
 async def submit_answer(session_id: int, req: AnswerRequest, db: Session = Depends(get_db)):
-    """Evaluate one spoken answer against its dataset reference answer."""
+    """Record one answer — NO evaluation happens here.
+
+    All answers are stored raw (transcript + timing + pause meta) and evaluated
+    together, once, when the session is finished. This keeps the interview
+    flow: answer Q1..Q6 → one complete evaluation → final report.
+    """
     session = db.query(LiveInterviewSession).filter(LiveInterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -139,37 +161,38 @@ async def submit_answer(session_id: int, req: AnswerRequest, db: Session = Depen
     if question["question_id"] not in (session.question_ids or []):
         raise HTTPException(status_code=400, detail="Question not part of this session")
 
-    result = ev.evaluate_answer(
-        question=question,
-        candidate_answer=req.transcript,
-        duration_s=req.duration_s,
-        grades=question.get("grades"),
-    )
-
-    # Append the per-question result (with the frontend-measured pause meta)
-    # to the running session record.
     results = list(session.results or [])
-    results.append({**result, "pause_count": req.pause_count, "pause_seconds_total": req.pause_seconds_total})
+
+    # If the same question is resubmitted (retry after a network hiccup),
+    # update in place instead of double-counting it.
+    existing_idx = next((i for i, r in enumerate(results) if r.get("question_id") == req.question_id), None)
+    record = {
+        "_recorded": True,
+        "question_id": req.question_id,
+        "question": question["question"],
+        "category": question["category"],
+        "difficulty": question.get("difficulty", ""),
+        "candidate_answer": req.transcript,
+        "duration_s": req.duration_s,
+        "pause_count": req.pause_count,
+        "pause_seconds_total": req.pause_seconds_total,
+    }
+    if existing_idx is not None:
+        results[existing_idx] = record
+    else:
+        results.append(record)
+
     session.results = results
     session.duration_s = (session.duration_s or 0.0) + req.duration_s
 
     flag_modified(session, "results")
     db.commit()
 
-    ml_pred = result.get("ml_prediction") or {}
     return AnswerResponse(
-        score=result["answer_score"],
-        score_10=result["answer_score_10"],
-        grade_label=result["grade_label"],
-        feedback=result["feedback"],
-        semantic_similarity=result["semantic_similarity"],
-        concept_coverage=result["concept_coverage"],
-        keywords_hit=result["keywords_hit"],
-        keywords_missed=result["keywords_missed"],
-        key_points_missing=result["key_points_missing"],
-        question_id=result["question_id"],
-        ml_predicted_score=ml_pred.get("predicted_score"),
-        ml_available=bool(ml_pred.get("available")),
+        recorded=True,
+        question_id=req.question_id,
+        answered_count=len(results),
+        total_questions=session.total_questions or 0,
     )
 
 
@@ -182,11 +205,36 @@ async def finish_session(session_id: int, db: Session = Depends(get_db)):
     if session.status == "completed":
         return _session_report(session)
 
+    all_q = {q["question_id"]: q for q in ds.load_dataset()}
+    raw = session.results or []
+    recorded = [r for r in raw if r.get("_recorded")]
+
+    # One complete evaluation of ALL recorded answers — the only place
+    # evaluate_answer runs for a session.
+    scored = []
+    for r in recorded:
+        question = all_q.get(r["question_id"])
+        if not question:
+            continue
+        scored.append({
+            **ev.evaluate_answer(
+                question=question,
+                candidate_answer=r.get("candidate_answer", ""),
+                duration_s=r.get("duration_s", 0.0),
+                grades=question.get("grades"),
+            ),
+            "pause_count": r.get("pause_count", 0),
+            "pause_seconds_total": r.get("pause_seconds_total", 0.0),
+        })
+
+    if not scored:
+        raise HTTPException(status_code=409, detail="No answers were recorded for this session")
+
     report = ev.aggregate_session(
-        results=session.results or [],
+        results=scored,
         sessions_meta={
-            "pause_count": sum(r.get("pause_count", 0) for r in (session.results or [])),
-            "pause_seconds_total": sum(r.get("pause_seconds_total", 0.0) for r in (session.results or [])),
+            "pause_count": sum(r.get("pause_count", 0) for r in scored),
+            "pause_seconds_total": sum(r.get("pause_seconds_total", 0.0) for r in scored),
         },
     )
 

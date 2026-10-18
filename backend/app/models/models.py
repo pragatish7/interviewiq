@@ -173,3 +173,33 @@ class LiveInterviewSession(Base):
     areas_for_improvement = Column(JSON, nullable=True)
     overall_feedback = Column(Text, nullable=True)
     transcript = Column(Text, nullable=True)
+
+
+class CoachSession(Base):
+    """An AI Coach conversation (fully independent workflow).
+
+    Messages are stored as a JSON list of {role, content} so the conversation
+    can be rehydrated into the coach engine's context on every turn. The
+    existing Interview / LiveInterviewSession tables are untouched.
+    """
+
+    __tablename__ = "coach_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    title = Column(String(120), default="New chat")
+    messages = Column(JSON, nullable=True)  # [{role: user|coach, content: str}]
+    active_practice = Column(JSON, nullable=True)  # {question, category, difficulty, kind, last_feedback}
+
+    # Coaching context remembered across messages
+    target_role = Column(String(255), nullable=True)
+    mode = Column(String(40), default="coaching")  # coaching | strict_interviewer
+    tone = Column(String(40), default="friendly")  # friendly | strict | warm | neutral
+
+    # Latest analysis snapshot loaded into coaching context (source_kind +
+    # source_id: video interview analysis or live interview report).
+    snapshot = Column(JSON, nullable=True)
+    snapshot_source_kind = Column(String(30), nullable=True)  # video | live
+    snapshot_source_id = Column(Integer, nullable=True)

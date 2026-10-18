@@ -14,6 +14,7 @@ from app.database.database import init_db
 from app.routes.interviews import router as interviews_router
 from app.routes.dashboard import router as dashboard_router
 from app.routes.live_interviews import router as live_interviews_router
+from app.routes.coach import router as coach_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -65,6 +66,7 @@ app.add_middleware(
 app.include_router(interviews_router)
 app.include_router(dashboard_router)
 app.include_router(live_interviews_router)
+app.include_router(coach_router)
 
 
 @app.get("/api/health")

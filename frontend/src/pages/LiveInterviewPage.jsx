@@ -42,6 +42,9 @@ function SetupScreen({ dataset, onStart, starting, error }) {
   const [micState, setMicState] = useState('idle')
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  // When Start is pressed the probe stream is handed to the interview page so
+  // the whole session uses exactly ONE camera stream (no second getUserMedia).
+  const transferredRef = useRef(false)
 
   const probe = useCallback(async () => {
     try {
@@ -58,7 +61,9 @@ function SetupScreen({ dataset, onStart, starting, error }) {
 
   useEffect(() => {
     probe()
-    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()) }
+    return () => {
+      if (!transferredRef.current) streamRef.current?.getTracks().forEach((t) => t.stop())
+    }
   }, [probe])
 
   const questions = dataset?.total_questions ?? 0
@@ -72,8 +77,9 @@ function SetupScreen({ dataset, onStart, starting, error }) {
           Live AI Interview<span className="text-[var(--accent)]">.</span>
         </h1>
         <p className="text-[13.5px] text-[var(--text-2)] mt-3 leading-relaxed max-w-md">
-          Answer real dataset questions with your microphone. Each spoken answer is transcribed,
-          scored against the reference answer, and folded into a full performance report at the end.
+          Answer real dataset questions with your microphone. Each spoken answer is transcribed
+          and recorded — after the final question, all answers are evaluated together into a
+          full performance report.
         </p>
 
         <div className="mt-6 rounded-xl overflow-hidden border" style={{ borderColor: 'var(--border-2)', background: 'black' }}>
@@ -110,8 +116,8 @@ function SetupScreen({ dataset, onStart, starting, error }) {
           {[
             'A question from the dataset appears — read it aloud or press "Read question" to hear it.',
             { text: 'Answer with your microphone; live transcription appears as you speak.', icon: Mic },
-            'Press "Finish answer" — your answer is scored against the reference instantly.',
-            'After the last question you get the full analysis: scores, keywords, speech metrics.',
+            'Press "Finish answer" — your answer is recorded and the next question begins. Nothing is scored yet.',
+            'After Question 6, all six answers are evaluated together into the full report: scores, keywords, speech metrics.',
           ].map((step, i) => {
             const icon = typeof step === 'object' ? step.icon : null
             const text = typeof step === 'object' ? step.text : step
@@ -133,7 +139,11 @@ function SetupScreen({ dataset, onStart, starting, error }) {
           </p>
         )}
 
-        <button onClick={onStart} disabled={starting} className="btn btn-primary btn-lg w-full justify-center mt-6">
+        <button
+          onClick={() => { transferredRef.current = true; onStart(streamRef.current) }}
+          disabled={starting}
+          className="btn btn-primary btn-lg w-full justify-center mt-6"
+        >
           {starting ? 'Preparing questions…' : <><Play size={16} /> Start Interview</>}
         </button>
         <p className="text-[11.5px] text-[var(--text-3)] mt-3 text-center">
@@ -146,7 +156,7 @@ function SetupScreen({ dataset, onStart, starting, error }) {
 
 /* ------------------------------ Live screen ------------------------------ */
 
-function LiveScreen({ session, index, question, answerText, interim, listening, elapsed, camError, typedMode, onToggleTyping, onTypedChange, speechError, onReadAloud, onFinishAnswer, onEnd }) {
+function LiveScreen({ session, index, question, videoRef, answerText, interim, listening, elapsed, camError, typedMode, onToggleTyping, onTypedChange, speechError, onReadAloud, onFinishAnswer, onEnd }) {
   const qNum = index + 1
   const total = session.questions.length
 
@@ -169,7 +179,7 @@ function LiveScreen({ session, index, question, answerText, interim, listening, 
               <p className="text-[13px] text-[var(--text-2)] max-w-xs">{camError}</p>
             </div>
           ) : (
-            <video id="live-cam" autoPlay muted playsInline className="w-full aspect-video object-cover" />
+            <video ref={videoRef} id="live-cam" autoPlay muted playsInline className="w-full aspect-video object-cover" />
           )}
         </div>
 
@@ -250,51 +260,64 @@ function LiveScreen({ session, index, question, answerText, interim, listening, 
   )
 }
 
-/* -------------------------- Per-answer feedback -------------------------- */
+/* ------------------------- Answer recorded screen ------------------------ */
 
-function AnswerFeedback({ result, onNext, isLast }) {
-  const tone = scoreTone(result.score)
+/**
+ * Shown between questions instead of a per-answer score: answers are only
+ * recorded here — the full evaluation runs once, after the last question.
+ */
+function AnswerRecorded({ index, total, category, answeredCount, onNext, onEnd }) {
+  const qNum = index + 1
+  const isLast = qNum >= total
   return (
     <div className="max-w-3xl mx-auto anim-fade-up">
       <div className="panel-focus p-5 sm:p-7 relative overflow-hidden">
         <span className="glow-burgundy -top-20 -right-20 w-64 h-64 opacity-50" aria-hidden />
         <div className="flex flex-col sm:flex-row items-center gap-6">
-          <ScoreRing score={result.score} size={140} label={`${result.score_10}/10`} />
+          <span
+            className="w-[140px] h-[140px] rounded-full flex items-center justify-center shrink-0 border-4"
+            style={{ borderColor: 'var(--success)', background: 'var(--success-bg)', color: 'var(--success)' }}
+          >
+            <CheckCircle2 size={56} />
+          </span>
           <div className="flex-1 text-center sm:text-left">
-            <p className="kicker mb-1.5">Answer evaluated</p>
+            <p className="kicker mb-1.5">Answer {qNum} of {total} recorded</p>
             <h2 className="text-[22px] font-extrabold text-[var(--text)] tracking-tight" style={{ fontFamily: 'var(--font-display)' }}>
-              <span style={{ color: tone }}>{result.grade_label}</span>
+              {isLast ? 'All questions answered.' : 'Answer saved.'}
             </h2>
-            <p className="text-[13px] text-[var(--text-2)] mt-2 leading-relaxed">{result.feedback}</p>
+            <p className="text-[13px] text-[var(--text-2)] mt-2 leading-relaxed">
+              {isLast
+                ? 'That was the final question. All six answers will now be evaluated together into your complete interview report.'
+                : 'Scores are withheld until the end — after the last question, all your answers are evaluated together into one complete report.'}
+            </p>
             <div className="flex flex-wrap gap-2 mt-3 justify-center sm:justify-start">
-              <span className="badge badge-gray">Similarity {(result.semantic_similarity * 100).toFixed(0)}%</span>
-              <span className="badge badge-gray">Concepts {(result.concept_coverage * 100).toFixed(0)}%</span>
-              {result.ml_available && result.ml_predicted_score != null && (
-                <span className="badge badge-gray" title="Independent estimate from the ML model trained on graded interview answers (test MAE ≈ 2.3 points). Reference only — your official score is the rubric score.">
-                  ML model: {Math.round(result.ml_predicted_score)}/100
-                </span>
-              )}
-              {result.keywords_hit?.length > 0 && <span className="badge badge-green">Covered: {result.keywords_hit.slice(0, 3).join(', ')}</span>}
+              <span className="badge badge-green"><CheckCircle2 size={11} /> {answeredCount} of {total} answers recorded</span>
+              <span className="badge badge-violet">{category}</span>
             </div>
           </div>
         </div>
 
-        {result.key_points_missing?.length > 0 && (
-          <div className="mt-5 p-4 rounded-xl border" style={{ borderColor: 'var(--border-2)', background: 'var(--surface-2)' }}>
-            <p className="kicker mb-2">Consider covering</p>
-            <ul className="space-y-1.5">
-              {result.key_points_missing.slice(0, 3).map((p, i) => (
-                <li key={i} className="text-[12.5px] text-[var(--text-2)] flex items-start gap-2">
-                  <span className="w-1 h-1 rounded-full mt-1.5 shrink-0" style={{ background: 'var(--accent)' }} /> {p}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {/* progress dots */}
+        <div className="mt-6 flex items-center gap-1.5">
+          {Array.from({ length: total }).map((_, i) => (
+            <span
+              key={i}
+              className="h-1.5 rounded-full transition-all duration-300"
+              style={{
+                flex: 1,
+                background: i < qNum ? 'var(--accent)' : 'var(--surface-3)',
+                boxShadow: i < qNum ? '0 0 8px rgba(194,20,79,.5)' : 'none',
+              }}
+            />
+          ))}
+        </div>
 
-        <button onClick={onNext} className="btn btn-primary btn-lg w-full justify-center mt-6">
-          {isLast ? <>Finish interview <Sparkles size={15} /></> : <>Next question <ArrowRight size={15} /></>}
-        </button>
+        <div className="flex flex-wrap items-center gap-3 mt-6">
+          <button onClick={onNext} className="btn btn-primary btn-lg flex-1 justify-center min-w-[180px]">
+            {isLast ? <>Evaluate interview <Sparkles size={15} /></> : <>Next question <ArrowRight size={15} /></>}
+          </button>
+          <button onClick={onEnd} className="btn btn-ghost text-[var(--error)]">End interview</button>
+        </div>
       </div>
     </div>
   )
@@ -420,11 +443,11 @@ function ResultsView({ report, onRestart }) {
 /* --------------------------------- Page ---------------------------------- */
 
 export default function LiveInterviewPage() {
-  const [phase, setPhase] = useState('setup') // setup | live | feedback | results | loading
+  const [phase, setPhase] = useState('setup') // setup | live | recorded | loading | results
   const [dataset, setDataset] = useState(null)
   const [session, setSession] = useState(null)
   const [qIndex, setQIndex] = useState(0)
-  const [lastResult, setLastResult] = useState(null)
+  const [answeredCount, setAnsweredCount] = useState(0)
   const [report, setReport] = useState(null)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
@@ -434,6 +457,10 @@ export default function LiveInterviewPage() {
   const [typedValue, setTypedValue] = useState('')
   const [elapsed, setElapsed] = useState(0)
   const [camError, setCamError] = useState('')
+  const [loadingMsg, setLoadingMsg] = useState('Working…')
+  // Bumped whenever the shared stream is (re)acquired so the video-attach
+  // effect re-runs even if phase/qIndex did not change (async getUserMedia).
+  const [streamRev, setStreamRev] = useState(0)
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
@@ -447,24 +474,70 @@ export default function LiveInterviewPage() {
 
   const question = session?.questions?.[qIndex]
 
-  const startCamera = useCallback(async () => {
+  /**
+   * ONE MediaStream for the whole session.
+   *
+   * - Acquired once (or adopted from the setup screen's probe) and kept in
+   *   streamRef — never re-requested per question, never released between
+   *   questions.
+   * - Kept alive across live → recorded → live phase transitions; only
+   *   stopped after the final evaluation completes, on explicit exit, or on
+   *   unmount.
+   */
+  const ensureCamera = useCallback(async () => {
+    if (streamRef.current?.active) return streamRef.current
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       streamRef.current = s
-      const el = document.getElementById('live-cam')
-      if (el) el.srcObject = s
+      // If the user revokes the camera mid-session (browser UI), degrade
+      // gracefully instead of showing a frozen preview.
+      s.getVideoTracks().forEach((t) => {
+        t.addEventListener('ended', () => {
+          if (streamRef.current === s) setCamError('Camera was disconnected — the session continues with audio and transcript only.')
+        })
+      })
       setCamError('')
-    } catch {
-      setCamError('Camera unavailable — the session continues with audio and transcript only.')
+      setStreamRev((v) => v + 1)
+      return s
+    } catch (e) {
+      const name = e?.name || ''
+      setCamError(
+        name === 'NotFoundError' || name === 'DevicesNotFoundError' || name === 'OverconstrainedError'
+          ? 'No camera was found — the session continues with audio and transcript only.'
+          : name === 'NotAllowedError' || name === 'SecurityError'
+            ? 'Camera access was blocked — the session continues with audio and transcript only. Re-enable the camera in your browser settings to appear on video.'
+            : 'Camera unavailable — the session continues with audio and transcript only.'
+      )
+      return null
     }
   }, [])
+
+  // Keep the <video> element connected to the ONE shared stream across
+  // re-renders, question changes and phase transitions (live ↔ recorded).
+  // React remounts the element when these views swap; srcObject does not
+  // survive that, so reattach it here.
+  useEffect(() => {
+    const el = videoRef.current
+    const stream = streamRef.current
+    if (el && stream && stream.active && el.srcObject !== stream) {
+      el.srcObject = stream
+      el.play?.().catch(() => { /* autoplay guard — muted+playsInline is allowed */ })
+    }
+  }, [phase, qIndex, streamRev])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
   }, [])
 
-  const handleStart = useCallback(async () => {
+  // Final safety net: never leak the camera when leaving the page.
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    clearInterval(timerRef.current)
+  }, [])
+
+  const handleStart = useCallback(async (probeStream) => {
     setStarting(true)
     setError('')
     try {
@@ -474,23 +547,41 @@ export default function LiveInterviewPage() {
       setTypedValue('')
       setTypedMode(false)
       sr.reset()
-      setLastResult(null)
+      setReport(null)
+      setAnsweredCount(0)
       setPhase('live')
       startAtRef.current = Date.now()
       pausesAtStartRef.current = { count: 0, seconds: 0 }
       setElapsed(0)
+      clearInterval(timerRef.current)
       timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startAtRef.current) / 1000)), 1000)
-      startCamera()
+      // Adopt the setup screen's probe stream when it is still alive — exactly
+      // one camera stream for the entire session. Otherwise request one.
+      if (probeStream && probeStream.active) {
+        streamRef.current = probeStream
+        probeStream.getVideoTracks().forEach((t) => {
+          t.addEventListener('ended', () => {
+            if (streamRef.current === probeStream) setCamError('Camera was disconnected — the session continues with audio and transcript only.')
+          })
+        })
+        setCamError('')
+        setStreamRev((v) => v + 1)
+      } else {
+        await ensureCamera()
+      }
     } catch (e) {
       setError(e?.response?.data?.detail || 'Could not start the session. Is the backend running?')
     } finally {
       setStarting(false)
     }
-  }, [startCamera])
+  }, [ensureCamera])
 
+  // Records the finished answer. NO evaluation happens here — per-answer
+  // scoring was removed on purpose; everything is evaluated once after Q6.
   const finishAnswer = useCallback(async () => {
     if (!session || !question) return
     setPhase('loading')
+    setLoadingMsg('Recording your answer…')
     const finalText = (typedMode ? typedValue : srTextRef.current).trim()
     try {
       const res = await submitLiveAnswer(session.session_id, {
@@ -500,24 +591,42 @@ export default function LiveInterviewPage() {
         pauseCount: Math.max(0, sr.pauses.current.count - pausesAtStartRef.current.count),
         pauseSecondsTotal: Math.max(0, sr.pauses.current.seconds - pausesAtStartRef.current.seconds),
       })
-      setLastResult(res)
-      setPhase('feedback')
+      // Server-confirmed record count (includes this answer).
+      setAnsweredCount(res?.answered_count ?? qIndex + 1)
+      setPhase('recorded')
     } catch (e) {
-      setError(e?.response?.data?.detail || 'Evaluation failed. Please try again.')
+      setError(e?.response?.data?.detail || 'Could not record the answer. Please try again.')
       setPhase('live')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, question, typedMode, typedValue, elapsed])
+  }, [session, question, typedMode, typedValue, elapsed, qIndex])
+
+  const startEvaluation = useCallback(async () => {
+    if (!session) return
+    // The last answer (Q6) was already persisted server-side before the
+    // "recorded" screen appeared (finishAnswer awaited submitLiveAnswer), so
+    // /finish always evaluates the complete set — no React state races.
+    setPhase('loading')
+    setLoadingMsg(`Evaluating all ${session.questions.length} answers…`)
+    try {
+      const rep = await finishLiveSession(session.session_id)
+      setReport(rep)
+      setPhase('results')
+      // Camera + mic are released ONLY now — after the complete evaluation.
+      stopCamera()
+      clearInterval(timerRef.current)
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Could not evaluate the interview. Please try again.')
+      setPhase('recorded')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, stopCamera])
 
   const nextQuestion = useCallback(() => {
     if (!session) return
     const isLast = qIndex + 1 >= session.questions.length
     if (isLast) {
-      setPhase('loading')
-      finishLiveSession(session.session_id)
-        .then(setReport)
-        .then(() => { setPhase('results'); stopCamera(); clearInterval(timerRef.current) })
-        .catch((e) => { setError(e?.response?.data?.detail || 'Could not finalize the session.'); setPhase('live') })
+      startEvaluation()
     } else {
       setQIndex((i) => i + 1)
       setTypedValue('')
@@ -527,7 +636,7 @@ export default function LiveInterviewPage() {
       setPhase('live')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, qIndex, stopCamera])
+  }, [session, qIndex, startEvaluation])
 
   const endInterview = useCallback(async () => {
     stopCamera()
@@ -540,6 +649,8 @@ export default function LiveInterviewPage() {
     setSession(null)
     setQIndex(0)
     setTypedValue('')
+    setReport(null)
+    setAnsweredCount(0)
   }, [session, stopCamera])
 
   // Speech recognition for the whole live phase (rules of hooks: called
@@ -582,6 +693,7 @@ export default function LiveInterviewPage() {
         session={session}
         index={qIndex}
         question={question}
+        videoRef={videoRef}
         answerText={typedMode ? typedValue : sr.text}
         interim={sr.interim}
         listening={sr.listening}
@@ -598,12 +710,15 @@ export default function LiveInterviewPage() {
     )
   }
 
-  if (phase === 'feedback' && lastResult) {
+  if (phase === 'recorded') {
     return (
-      <AnswerFeedback
-        result={lastResult}
+      <AnswerRecorded
+        index={qIndex}
+        total={session.questions.length}
+        category={question.category}
+        answeredCount={answeredCount}
         onNext={nextQuestion}
-        isLast={qIndex + 1 >= session.questions.length}
+        onEnd={endInterview}
       />
     )
   }
@@ -612,11 +727,14 @@ export default function LiveInterviewPage() {
     return <ResultsView report={report} onRestart={endInterview} />
   }
 
-  // loading
+  // loading (recording an answer / evaluating the whole interview)
   return (
     <div className="panel p-10 flex flex-col items-center justify-center gap-4 min-h-[300px]">
       <span className="skeleton w-10 h-10 rounded-full" />
-      <p className="text-[13px] text-[var(--text-3)]">Working…</p>
+      <p className="text-[13px] text-[var(--text-3)]">{loadingMsg}</p>
+      {phase === 'loading' && loadingMsg.startsWith('Evaluating') && (
+        <p className="text-[11.5px] text-[var(--text-3)]">This runs once, over every recorded answer.</p>
+      )}
     </div>
   )
 }
